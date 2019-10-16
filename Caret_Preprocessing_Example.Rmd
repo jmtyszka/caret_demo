@@ -1,0 +1,73 @@
+---
+title: "Caret Preprocessing Examples"
+output: html_notebook
+---
+
+Adapted from https://topepo.github.io/caret/pre-processing.html
+
+## Identifying Linear Dependencies between Predictors
+
+Set up a 6 x 6 matrix where the first column is the sum of columns 2 and 3, and also of columns 4, 5 and 6
+```{r}
+ltfrDesign <- matrix(0, nrow=6, ncol=6)
+ltfrDesign[,1] <- c(1, 1, 1, 1, 1, 1)
+ltfrDesign[,2] <- c(1, 1, 1, 0, 0, 0)
+ltfrDesign[,3] <- c(0, 0, 0, 1, 1, 1)
+ltfrDesign[,4] <- c(1, 0, 0, 1, 0, 0)
+ltfrDesign[,5] <- c(0, 1, 0, 0, 1, 0)
+ltfrDesign[,6] <- c(0, 0, 1, 0, 0, 1)
+ltfrDesign
+```
+
+Now find linear combinations of columns and indicate which columns can be removed. The function ```findLinearCombos``` uses the QR decomposition of a matrix to enumerate sets of linear combinations between predictors (columns)
+
+```{r}
+comboInfo <- findLinearCombos(ltfrDesign)
+comboInfo
+ltfrDesign[, -comboInfo$remove]
+```
+
+## Identifying Zero and Near-zero Variance Predictors
+
+This example uses the Multidrug Resistance Reversal (MDRR) dataset bundled with R. Each of the 342 tested compounds has 528 descriptors of its molecular structure.
+
+```{r}
+data(mdrr)
+```
+
+Here's a reasonably well-blanced structral descriptor (nR10, the number of 10-membered rings in the compound)
+```{r}
+library(ggplot2)
+qplot(mdrrDescr$nR10,
+      geom="histogram",
+      bins = 5,
+      binwidth = 0.5,
+      xlab = "nR10")
+```
+
+One of the structural descriptors (nR11, the number of 11-membered rings) has only a few unique numerical values (0, 1, 2) that are highly unbalanced.
+
+```{r}
+qplot(mdrrDescr$nR11,
+      geom="histogram",
+      bins = 5,
+      binwidth = 0.5,
+      xlab = "nR11")
+```
+The concern here is that these predictors may become zero-variance predictors when the data are split into cross-validation/bootstrap sub-samples or that a few samples may have an undue influence on the model.
+
+```{r}
+nzv <- nearZeroVar(mdrrDescr, saveMetrics = TRUE)
+nzv[40:50,]
+```
+```freqRatio``` is the ratio of the frequencies of the most common and second most common value. Values >> 1 indicate problem predictors. ```percentUnique``` is the percentage of the all values that are unique. This should be close to zero for well-behaved predictors..
+
+nearZeroVar returns a boolean vector which can be used to remove problematic near zero variance predictors (45 in this case, including nR11)
+
+```{r}
+nzv_new <- nearZeroVar(mdrrDescr)
+filteredDescr <- mdrrDescr[, -nzv_new]
+dim(mdrrDescr)
+dim(filteredDescr)
+```
+
