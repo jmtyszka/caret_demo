@@ -28,6 +28,10 @@ library(ggplot2)
 library(Metrics)
 library(data.table)
 library(car)
+library(mvtboost)
+library(caret)
+library(doMC)
+library(lattice)
 
 # Set working directory
 setwd("/Users/jmt/GitHub/caret_demo")
@@ -39,7 +43,7 @@ head(X)
 ```
 
 ### Plot matrix of pairwise scatterplots for all variables of interest
-```{r}
+```{r fig.width = 12, fig.height = 12}
 scatterplotMatrix(X, smooth = FALSE)
 ```
 
@@ -53,11 +57,98 @@ NTBs <- scale(NTB)
 SNIs <- scale(SNI)
 ```
 
+### Compare tuned GBM and Stepwise Linear regression models using Caret
+```{r}
+registerDoMC(cores = 8)
+
+# Collect data
+social <- merge(NTBs, SNIs)
+```
+
+## Preprocessing checks
+
+### Near-zero Variance Predictors
+```{r}
+nearZeroVar(NTBs, saveMetrics = TRUE)
+```
+
+### NTB Predictor Correlations
+```{r}
+corNTB <- cor(NTBs)
+summary(corNTB[upper.tri(corNTB)])
+```
+
+### Number of highly correlated predictors
+```{r}
+findCorrelation(corNTB, cutoff = .75)
+```
+
+### Linear Combinations within Predictors
+```{r}
+findLinearCombos(NTBs)
+```
+
+### Setup 10 x 10-fold Cross Validation
+```{r}
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 10,
+                           repeats = 1)
+```
+
+### Set up univariate regression formulae
+We'll only try to predict SNI people count from NTB in this example
+```{r}
+f1 = SNI_Ex_People_Count ~ . - SNI_Ex_Embed_Networks - SNI_Ex_Network_Diversity
+f2 = SNI_Ex_Embed_Networks ~ . - SNI_Ex_People_Count - SNI_Ex_Network_Diversity
+f3 = SNI_Ex_Network_Diversity ~ . - SNI_Ex_People_Count - SNI_Ex_Embed_Networks
+```
+
+### Tune the GBM Regressors for SNI Measures
+```{r}
+gbmGrid <-  expand.grid(interaction.depth = 2:5, 
+                        n.trees = 10 * (1:5), 
+                        shrinkage = c(0.01, 0.005),
+                        n.minobsinnode = 10)
+
+set.seed(1966)
+```
+
+### GBM : SNI People Count
+```{r}
+gbmFit.SNIcount <- train(f1,
+                         data = social,
+                         method = "gbm",
+                         trControl = fitControl,
+                         tuneGrid = gbmGrid,
+                         verbose = FALSE)
+
+gbmFit.SNIcount
+```
+
+```{r}
+plot(gbmFit.SNIcount)
+```
+
+### Tuning Linear Regression with Backwards Selection
+```{r}
+set.seed(1966)
+lrbackGrid <-  expand.grid(nvmax = 1:6)
+lrbackFit.SNIcount <- train(f1,
+                            data = social,
+                            method = "leapBackward",
+                            trControl = fitControl,
+                            tuneGrid = lrbackGrid)
+
+lrbackFit.SNIcount
+```
+
+```{r}
+plot(lrbackFit.SNIcount)
+```
+
 ### Multivariate gradient boosted tree regression
 Predicting SNI measures from NIHTB Social Measures
 ```{r}
-library(mvtboost)
-
 # Run MV Tree Regression with cross validation
 mvtb.model <- mvtb(Y = SNIs, X = NTBs,
                    n.trees = 250, shrinkage = 0.05,
@@ -69,9 +160,8 @@ summary(mvtb.model)
 ### R2 for SNI predictions from NTB
 ```{r}
 SNIs.hat <- predict(mvtb.model, newdata=NTBs)
-
 SNIs.R2 <- diag(var(SNIs.hat)/var(SNIs))
-print(SNIs.R2)
+SNIs.R2
 ```
 
 ### RMSE for SNI prediction from NTB
@@ -94,131 +184,12 @@ par(mar=c(12,25,2,2))
 mvtb.heat(covex, clust.method="ward.D")
 ```
 
-### Training and CV errors
+### Training and Cross-validation errors
 ```{r}
 Trees <- 1:length(mvtb.model$trainerr)
 errs <- data.frame(Trees, mvtb.model$trainerr, mvtb.model$cv.err)
 errs <- reshape2::melt(errs,id="Trees")
 vp <- ggplot(errs, aes(x=Trees, y=value, color=variable))
 vp <- vp + geom_line()
-print(vp)
-```
-
-## Compare a variety of regression models using Caret
-```{r}
-library(caret)
-library(doMC)
-registerDoMC(cores = 8)
-
-#
-# Collect data
-#
-social <- merge(NTBs, SNIs)
-
-#
-# Preprocessing checks
-#
-
-cat('\nNear-zero Variance Predictors\n')
-print(nearZeroVar(NTBs, saveMetrics = TRUE))
-
-cat('\nSummary of NTB correlations\n')
-corNTB <- cor(NTBs)
-print(summary(corNTB[upper.tri(corNTB)]))
-
-cat('\nNumber of highly correlated predictors\n')
-print(findCorrelation(corNTB, cutoff = .75))
-
-cat('\nLinear Combinations within Predictors\n')
-print(findLinearCombos(NTBs))
-```
-
-```{r}
-#------------------------------------------
-# Setup 10-fold cross-validation
-fitControl <- trainControl(method = "repeatedcv",
-                           number = 10,
-                           repeats = 10)
-
-# Univariate regression formulae
-f1 = SNI_Ex_People_Count ~ . - SNI_Ex_Embed_Networks - SNI_Ex_Network_Diversity
-f2 = SNI_Ex_Embed_Networks ~ . - SNI_Ex_People_Count - SNI_Ex_Network_Diversity
-f3 = SNI_Ex_Network_Diversity ~ . - SNI_Ex_People_Count - SNI_Ex_Embed_Networks
-```
-
-```{r}
-#------------------------------------------
-# Gradient Boosted Tree (GBM)
-
-cat('\nGradient Boosted Trees Optimization\n')
-
-# Customize the training grid
-gbmGrid <-  expand.grid(interaction.depth = 1:5, 
-                        n.trees = 50 * (1:10), 
-                        shrinkage = c(0.05, 0.01, 0.005),
-                        n.minobsinnode = 10)
-
-set.seed(1966)
-
-cat('\nGBM : SNI People Count\n')   
-gbmFit.SNIcount <- train(f1, data = social,
-                         method = "gbm", metric = "Rsquared",
-                         trControl = fitControl, tuneGrid = gbmGrid,
-                         verbose = FALSE)
-
-print(summary(gbmFit.SNIcount))
-print(plot(gbmFit.SNIcount))
-
-cat('\nGBM : SNI Embedded Networks\n') 
-gbmFit.SNIemb <- train(f2, data = social,
-                       method = "gbm", metric = "Rsquared",
-                       trControl = fitControl, tuneGrid = gbmGrid,
-                       verbose = FALSE)
-
-print(summary(gbmFit.SNIemb))
-print(plot(gbmFit.SNIemb))
-
-cat('\nGBM : SNI Network Diversity\n')
-gbmFit.SNIdiv <- train(f3, data = social,
-                       method = "gbm", metric = "Rsquared",
-                       trControl = fitControl, tuneGrid = gbmGrid,
-                       verbose = FALSE)
-
-print(summary(gbmFit.SNIdiv))
-print(plot(gbmFit.SNIdiv))
-```
-
-```{r}
-#------------------------------------------
-# Linear Regression with Backwards Selection
-
-cat('\nLinear Regression with Backwards Selection\n')
-
-lrbackGrid <-  expand.grid(nvmax = 1:6)
-
-set.seed(1966)
-
-cat('\nLR Backwards : SNI People Count\n')
-lrbackFit.SNIcount <- train(f1, data = social,
-                            method = "leapBackward", metric = "Rsquared",
-                            trControl = fitControl, tuneGrid = lrbackGrid)
-
-print(lrbackFit.SNIcount)
-print(plot(lrbackFit.SNIcount))
-
-cat('\nLR Backwards : SNI Embedded Networks\n')
-lrbackFit.SNIemb <- train(f2, data = social, 
-                          method = "leapBackward", metric = "Rsquared",
-                          trControl = fitControl, tuneGrid = lrbackGrid)
-
-print(lrbackFit.SNIemb)
-print(plot(lrbackFit.SNIemb))
-
-cat('\nLR Backwards : SNI Network Diversity\n')
-lrbackFit.SNIdiv <- train(f3, data = social,
-                          method = "leapBackward", metric = "Rsquared",
-                          trControl = fitControl, tuneGrid = lrbackGrid)
-
-print(lrbackFit.SNIdiv)
-print(plot(lrbackFit.SNIdiv))
+vp
 ```
