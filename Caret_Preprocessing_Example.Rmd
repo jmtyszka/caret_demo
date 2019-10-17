@@ -5,8 +5,13 @@ output: html_notebook
 
 Adapted from https://topepo.github.io/caret/pre-processing.html
 
-## Identifying Linear Dependencies between Predictors
+```{r}
+library(caret)
+library(ggplot2)
+```
 
+
+## Identifying Linear Dependencies between Predictors
 Set up a 6 x 6 matrix where the first column is the sum of columns 2 and 3, and also of columns 4, 5 and 6
 ```{r}
 ltfrDesign <- matrix(0, nrow=6, ncol=6)

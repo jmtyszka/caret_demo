@@ -126,7 +126,7 @@ gbmFit.SNIcount
 ```
 
 ```{r}
-plot(gbmFit.SNIcount)
+ggplot(gbmFit.SNIcount)
 ```
 
 ### Tuning Linear Regression with Backwards Selection
@@ -143,7 +143,7 @@ lrbackFit.SNIcount
 ```
 
 ```{r}
-plot(lrbackFit.SNIcount)
+ggplot(lrbackFit.SNIcount)
 ```
 
 ### Multivariate gradient boosted tree regression

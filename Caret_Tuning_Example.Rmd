@@ -81,7 +81,7 @@ ggplot(gbmFit2, metric="Kappa")
 
 or as a heat map
 
-```{r}
+```{r fig.width = 10, fig.height = 4}
 pp <- ggplot(gbmFit2, metric = "Kappa", plotType = "level")
 pp <- pp + theme(axis.text.x = element_text(angle = 90, hjust = 1))
 pp
