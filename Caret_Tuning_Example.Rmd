@@ -18,14 +18,17 @@ Here's an example based on the sonar data bundled with the Machine Learning Benc
 ```{r}
 library(mlbench)
 library(ggplot2)
+library(doMC)
+library(caret)
+
 data(Sonar)
 head(Sonar)
 ```
 
 We can partition the data into training and testing sets using Caret's ```createDataPartition``` function. In the example below, 75% of the data is reserved for training (p = 0.75):
 ```{r}
-library(caret)
 set.seed(998)
+
 inTraining <- createDataPartition(Sonar$Class, p = .75, list = FALSE)
 training <- Sonar[ inTraining,]
 testing  <- Sonar[-inTraining,]
@@ -55,9 +58,13 @@ gbmFit1
 If we wanted to use a different training grid than the default for gbm, we can specify it using the ```expand.grid``` function and pass this to ```train```
 
 ```{r}
+# Set up parallelization for Monte Carlo
+# Adjust the number of cores for your hardware
+registerDoMC(cores = 4)
+
 # Specify a new training grid
 gbmGrid <-  expand.grid(interaction.depth = c(1, 5, 9), 
-                        n.trees = (1:30) * 50, 
+                        n.trees = (1:10) * 50, 
                         shrinkage = 0.1,
                         n.minobsinnode = 20)
 
