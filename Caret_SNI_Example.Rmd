@@ -1,9 +1,22 @@
 ---
-title: "Caret Example"
+title: "Caret Example: Predicting SNI from NIHTB Measures"
 output: html_notebook
 ---
 
-### Import libraries and load data
+### Variables of Interest
+
+#### From NIH Toolbox (Social)
+- NIHTB_Emotional_Support
+- NIHTB_Friendship
+- NIHTB_Loneliness
+- NIHTB_Instrumetnal_Support
+- NIHTB_Perceived_Hostility
+- NIHTB_Perceived_Rejection
+
+#### From Social Network Index
+- SNI_Ex_People_Count
+- SNI_Ex_Embed_Networks
+- SNI_Ex_Network_Diversity
 
 ```{r}
 # Import packages
@@ -14,85 +27,35 @@ library(gdata)
 library(ggplot2)
 library(Metrics)
 library(data.table)
-
-# Flags
-do_scatterplot = FALSE
-do_preproc_checks = FALSE
-
-```
-
-```{r}
+library(car)
 
 # Set working directory
 setwd("/Users/jmt/GitHub/caret_demo")
 
 # Read TSV data
-X <- read.delim("Results.txt", sep="\t", header=TRUE, fill=TRUE)
+X <- read.delim("SNI-NTB Results 2017-09-25.csv", sep=",", header=TRUE, fill=TRUE)
+
+head(X)
 ```
 
+### Plot matrix of pairwise scatterplots for all variables of interest
 ```{r}
-# The variables of interest are:
-# (Q3 (Age))
-# NIHTB_Emotional_Support
-# NIHTB_Friendship
-# NIHTB_Loneliness
-# NIHTB_Instrumetnal_Support
-# NIHTB_Perceived_Hostility
-# NIHTB_Perceived_Rejection
-# SNI_Ex_People_Count
-# SNI_Ex_Embed_Networks
-# SNI_Ex_Network_Diversity
-
-myvars <- c('NIHTB_Emotional_Support',
-            'NIHTB_Friendship',
-            'NIHTB_Loneliness',
-            'NIHTB_Instrumental_Support',
-            'NIHTB_Perceived_Hostility',
-            'NIHTB_Perceived_Rejection',
-            'SNI_Ex_People_Count',
-            'SNI_Ex_Embed_Networks',
-            'SNI_Ex_Network_Diversity')
+scatterplotMatrix(X, smooth = FALSE)
 ```
 
+### Extract included NIHTB and SNI measures
 ```{r}
-#-------------------
-# Exclusion Criteria
-#-------------------
-
-# Exclude initial debugging runs (Excluded = "SAMPLE_NONE")
-X_good <- X[X$Excluded != "SAMPLE_NONE", myvars]
-
-# Exclude any rows containing NA in any column (incomplete cases)
-X_good <- X_good[complete.cases(X_good),]
-```
-
-```{r}
-require(car)
-
-# Style constants
-plot.width = 10
-plot.height = 8
-
-# Pairwise scatterplots
-scatterplotMatrix(X_good)
-```
-
-```{r}
-# Extract included NIHTB and SNI measures
-NTB <- X_good[, grepl("NIHTB", names(X_good))] * 1.0
-SNI <- X_good[, grepl("SNI", names(X_good))] * 1.0
+NTB <- X[, grepl("NIHTB", names(X))] * 1.0
+SNI <- X[, grepl("SNI", names(X))] * 1.0
 
 # Standardize variables [mean,sd] = [0,1]
 NTBs <- scale(NTB)
 SNIs <- scale(SNI)
 ```
 
+### Multivariate gradient boosted tree regression
+Predicting SNI measures from NIHTB Social Measures
 ```{r}
-#----------------------------------------------
-# Multivariate gradient boosted tree regression
-# - predicting SNI measures from NIHTB Social Measures
-#----------------------------------------------
-
 library(mvtboost)
 
 # Run MV Tree Regression with cross validation
@@ -100,43 +63,49 @@ mvtb.model <- mvtb(Y = SNIs, X = NTBs,
                    n.trees = 250, shrinkage = 0.05,
                    interaction.depth = 1, cv.folds = 10)
 
-cat('\nMVTB Summary\n')
 summary(mvtb.model)
+```
 
-# Test SNI predictions from NTB
+### R2 for SNI predictions from NTB
+```{r}
 SNIs.hat <- predict(mvtb.model, newdata=NTBs)
 
-cat('\nSNI Prediction R2\n')
 SNIs.R2 <- diag(var(SNIs.hat)/var(SNIs))
 print(SNIs.R2)
+```
 
-cat('\nSNI Prediction RMSE\n')
+### RMSE for SNI prediction from NTB
+```{r}
 SNIs.RMSE <- rmse(SNIs.hat, SNIs)
-print(SNIs.RMSE)
+SNIs.RMSE
+```
 
-# Relative influences of NIHTB Social on SNI
-cat('\nRelative Influences of NTB Social on SNI\n')
+### Relative influences of NIHTB Social on SNI
+```{r}
 par(mar=c(15,12,2,2))
 relinfl <- t(mvtb.ri(mvtb.model, relative="tot"))
 mvtb.heat(relinfl, clust.method="ward.D")
- 
-# Outcome covariance explained
-cat('\nOutcome Covariance Explained')
+```
+
+### Outcome covariance explained
+```{r}
 covex <- mvtb.covex(mvtb.model, Y=SNIs, X=NTBs)
 par(mar=c(12,25,2,2))
 mvtb.heat(covex, clust.method="ward.D")
+```
 
-# Training and CV errors
+### Training and CV errors
+```{r}
 Trees <- 1:length(mvtb.model$trainerr)
 errs <- data.frame(Trees, mvtb.model$trainerr, mvtb.model$cv.err)
-errs <- melt(errs,id="Trees")
+errs <- reshape2::melt(errs,id="Trees")
 vp <- ggplot(errs, aes(x=Trees, y=value, color=variable))
 vp <- vp + geom_line()
 print(vp)
 ```
 
+## Compare a variety of regression models using Caret
 ```{r}
-# Compare a variety of regression models using Caret
 library(caret)
 library(doMC)
 registerDoMC(cores = 8)

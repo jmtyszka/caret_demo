@@ -1,0 +1,89 @@
+---
+title: "Caret Model Tuning Examples"
+output: html_notebook
+---
+
+Adapted from https://topepo.github.io/caret/model-training-and-tuning.html
+
+## Training and Tuning a Predictive Model
+
+Caret's ```train``` function can:
+
+- Evaluate the effect of hyperparameter tuning on prediction performance
+- Determine the optimal hyperparameter values
+- Evaluate model performance on a training set
+
+Here's an example based on the sonar data bundled with the Machine Learning Benchmark (MLB) package in R. This dataset consists of 208 samples of sonar spectra reflected from either a metal cylinder or a roughly cylindrical rock. Each predictor (spectrum) is a set of 60 numbers in the range 0.0 to 1.0.
+
+```{r}
+library(mlbench)
+library(ggplot2)
+data(Sonar)
+head(Sonar)
+```
+
+We can partition the data into training and testing sets using Caret's ```createDataPartition``` function. In the example below, 75% of the data is reserved for training (p = 0.75):
+```{r}
+library(caret)
+set.seed(998)
+inTraining <- createDataPartition(Sonar$Class, p = .75, list = FALSE)
+training <- Sonar[ inTraining,]
+testing  <- Sonar[-inTraining,]
+```
+
+The ```trainControl``` function is used to set up the resampling scheme used during training. For example, if we wanted 10 repeats of 10-fold cross-validation, we'd use:
+```{r}
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 10,
+                           repeats = 10)
+```
+
+Let's train a the model, in this case a Gradient Boosted Machine (gbm) classifier, using the 10 x 10-fold cross-validation scheme:
+```{r}
+# Fix the RNG seed for reproducibility
+set.seed(825)
+
+gbmFit1 <- train(Class ~ ., data = training, 
+                 method = "gbm", 
+                 trControl = fitControl,
+                 ## This last option is actually one
+                 ## for gbm() that passes through
+                 verbose = FALSE)
+gbmFit1
+```
+
+If we wanted to use a different training grid than the default for gbm, we can specify it using the ```expand.grid``` function and pass this to ```train```
+
+```{r}
+# Specify a new training grid
+gbmGrid <-  expand.grid(interaction.depth = c(1, 5, 9), 
+                        n.trees = (1:30) * 50, 
+                        shrinkage = 0.1,
+                        n.minobsinnode = 20)
+
+# Fix the RNG seed for reproducibility                    
+set.seed(825)
+
+gbmFit2 <- train(Class ~ ., data = training, 
+                 method = "gbm", 
+                 trControl = fitControl, 
+                 verbose = FALSE, 
+                 ## Pass the new training grid
+                 tuneGrid = gbmGrid)
+gbmFit2
+```
+
+We can look at how the gradient boosting improved prediction performance (Cohen's Kappa) during training as a line plot
+
+```{r}
+ggplot(gbmFit2, metric="Kappa")
+```
+
+or as a heat map
+
+```{r}
+pp <- ggplot(gbmFit2, metric = "Kappa", plotType = "level")
+pp <- pp + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+pp
+```
+
